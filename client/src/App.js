@@ -1,8 +1,25 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { io } from "socket.io-client";
 import "./App.css";
+
+const socket = io("http://localhost:5000");
 
 function App() {
   const localVideoRef = useRef(null);
+  
+  const [roomId] = useState("test-room");
+
+  useEffect(() => {
+    socket.emit("join-room", roomId);
+
+    socket.on("connect", () => {
+      console.log("Connected to server with id:", socket.id);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [roomId]);
 
   useEffect(() => {
     async function startCamera() {
