@@ -10,9 +10,10 @@ function App() {
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
-  const cameraReadyRef = useRef(false);
 
   const [roomId] = useState("test-room");
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCameraOff, setIsCameraOff] = useState(false);
 
   useEffect(() => {
     async function startCamera() {
@@ -22,11 +23,9 @@ function App() {
           audio: true,
         });
         localStreamRef.current = stream;
-        cameraReadyRef.current = true;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
-        // Only join the room once the camera is actually ready
         socket.emit("join-room", roomId);
       } catch (err) {
         console.error("Error accessing camera/mic:", err);
@@ -81,7 +80,6 @@ function App() {
           console.error("Error adding ICE candidate:", err);
         }
       } else {
-        // Remote description not set yet -> queue it for later
         pendingCandidatesRef.current.push(candidate);
       }
     });
@@ -148,6 +146,24 @@ function App() {
     return pc;
   }
 
+  function toggleMute() {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = isMuted; // flips current state
+    });
+    setIsMuted(!isMuted);
+  }
+
+  function toggleCamera() {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    stream.getVideoTracks().forEach((track) => {
+      track.enabled = isCameraOff; // flips current state
+    });
+    setIsCameraOff(!isCameraOff);
+  }
+
   return (
     <div className="App">
       <h2>VirtualConnect</h2>
@@ -172,6 +188,15 @@ function App() {
             style={{ width: "400px", border: "2px solid #333" }}
           />
         </div>
+      </div>
+
+      <div style={{ marginTop: "15px" }}>
+        <button onClick={toggleMute} style={{ marginRight: "10px", padding: "8px 16px" }}>
+          {isMuted ? "Unmute" : "Mute"}
+        </button>
+        <button onClick={toggleCamera} style={{ padding: "8px 16px" }}>
+          {isCameraOff ? "Turn Camera On" : "Turn Camera Off"}
+        </button>
       </div>
     </div>
   );
