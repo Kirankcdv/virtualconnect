@@ -6,10 +6,9 @@ const socket = io("http://localhost:5000");
 
 function App() {
   const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
-  const pendingCandidatesRef = useRef([]);
+  const peersRef = useRef({}); // { socketId: RTCPeerConnection }
+  const pendingCandidatesRef = useRef({}); // { socketId: [candidates] }
   const chatEndRef = useRef(null);
 
   const [roomId] = useState("test-room");
@@ -17,6 +16,7 @@ function App() {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
+  const [remoteStreams, setRemoteStreams] = useState({}); // { socketId: MediaStream }
 
   useEffect(() => {
     async function startCamera() {
@@ -42,23 +42,25 @@ function App() {
       console.log("Connected to server with id:", socket.id);
     });
 
+    // Someone new joined -> WE create a connection to THEM and send an offer
     socket.on("user-joined", async (otherUserId) => {
       console.log("User joined:", otherUserId);
       const pc = createPeerConnection(otherUserId);
-      peerConnectionRef.current = pc;
+      peersRef.current[otherUserId] = pc;
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socket.emit("offer", { target: otherUserId, offer });
     });
 
+    // We received an offer from someone -> create a connection to THEM, answer
     socket.on("offer", async ({ from, offer }) => {
       console.log("Received offer from:", from);
       const pc = createPeerConnection(from);
-      peerConnectionRef.current = pc;
+      peersRef.current[from] = pc;
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      await flushPendingCandidates(pc);
+      await flushPendingCandidates(from, pc);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -67,15 +69,15 @@ function App() {
 
     socket.on("answer", async ({ from, answer }) => {
       console.log("Received answer from:", from);
-      const pc = peerConnectionRef.current;
+      const pc = peersRef.current[from];
       if (pc) {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        await flushPendingCandidates(pc);
+        await flushPendingCandidates(from, pc);
       }
     });
 
     socket.on("ice-candidate", async ({ from, candidate }) => {
-      const pc = peerConnectionRef.current;
+      const pc = peersRef.current[from];
       if (pc && pc.remoteDescription && pc.remoteDescription.type) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -83,20 +85,25 @@ function App() {
           console.error("Error adding ICE candidate:", err);
         }
       } else {
-        pendingCandidatesRef.current.push(candidate);
+        if (!pendingCandidatesRef.current[from]) {
+          pendingCandidatesRef.current[from] = [];
+        }
+        pendingCandidatesRef.current[from].push(candidate);
       }
     });
 
     socket.on("user-left", (id) => {
       console.log("User left:", id);
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-        peerConnectionRef.current = null;
+      if (peersRef.current[id]) {
+        peersRef.current[id].close();
+        delete peersRef.current[id];
       }
-      pendingCandidatesRef.current = [];
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = null;
-      }
+      delete pendingCandidatesRef.current[id];
+      setRemoteStreams((prev) => {
+        const updated = { ...prev };
+        delete updated[id];
+        return updated;
+      });
     });
 
     socket.on("chat-message", ({ from, message }) => {
@@ -120,9 +127,10 @@ function App() {
     }
   }, [messages]);
 
-  async function flushPendingCandidates(pc) {
-    while (pendingCandidatesRef.current.length > 0) {
-      const candidate = pendingCandidatesRef.current.shift();
+  async function flushPendingCandidates(peerId, pc) {
+    const queued = pendingCandidatesRef.current[peerId] || [];
+    while (queued.length > 0) {
+      const candidate = queued.shift();
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
@@ -143,9 +151,10 @@ function App() {
     }
 
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
+      setRemoteStreams((prev) => ({
+        ...prev,
+        [otherUserId]: event.streams[0],
+      }));
     };
 
     pc.onicecandidate = (event) => {
@@ -195,7 +204,7 @@ function App() {
   return (
     <div className="App">
       <h2>VirtualConnect</h2>
-      <div style={{ display: "flex", gap: "20px", justifyContent: "center" }}>
+      <div style={{ display: "flex", gap: "20px", justifyContent: "center", flexWrap: "wrap" }}>
         <div>
           <p>You</p>
           <video
@@ -203,24 +212,29 @@ function App() {
             autoPlay
             playsInline
             muted
-            style={{ width: "400px", border: "2px solid #333" }}
+            style={{ width: "300px", border: "2px solid #333" }}
           />
         </div>
-        <div>
-          <p>Remote</p>
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{ width: "400px", border: "2px solid #333" }}
-          />
-        </div>
+
+        {Object.entries(remoteStreams).map(([peerId, stream]) => (
+          <div key={peerId}>
+            <p>{peerId.slice(0, 6)}</p>
+            <video
+              autoPlay
+              playsInline
+              muted
+              style={{ width: "300px", border: "2px solid #333" }}
+              ref={(el) => {
+                if (el) el.srcObject = stream;
+              }}
+            />
+          </div>
+        ))}
 
         <div
           style={{
             width: "250px",
-            height: "440px",
+            height: "340px",
             border: "2px solid #333",
             display: "flex",
             flexDirection: "column",
