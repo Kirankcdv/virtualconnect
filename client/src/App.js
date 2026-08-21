@@ -7,16 +7,18 @@ const socket = io("http://localhost:5000");
 function App() {
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
-  const peersRef = useRef({}); // { socketId: RTCPeerConnection }
-  const pendingCandidatesRef = useRef({}); // { socketId: [candidates] }
+  const cameraTrackRef = useRef(null); // keep original camera track to restore later
+  const peersRef = useRef({});
+  const pendingCandidatesRef = useRef({});
   const chatEndRef = useRef(null);
 
   const [roomId] = useState("test-room");
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
-  const [remoteStreams, setRemoteStreams] = useState({}); // { socketId: MediaStream }
+  const [remoteStreams, setRemoteStreams] = useState({});
 
   useEffect(() => {
     async function startCamera() {
@@ -26,6 +28,7 @@ function App() {
           audio: true,
         });
         localStreamRef.current = stream;
+        cameraTrackRef.current = stream.getVideoTracks()[0];
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
@@ -42,7 +45,6 @@ function App() {
       console.log("Connected to server with id:", socket.id);
     });
 
-    // Someone new joined -> WE create a connection to THEM and send an offer
     socket.on("user-joined", async (otherUserId) => {
       console.log("User joined:", otherUserId);
       const pc = createPeerConnection(otherUserId);
@@ -53,7 +55,6 @@ function App() {
       socket.emit("offer", { target: otherUserId, offer });
     });
 
-    // We received an offer from someone -> create a connection to THEM, answer
     socket.on("offer", async ({ from, offer }) => {
       console.log("Received offer from:", from);
       const pc = createPeerConnection(from);
@@ -187,6 +188,59 @@ function App() {
     setIsCameraOff(!isCameraOff);
   }
 
+  // Swap the video track on every active peer connection
+  function replaceVideoTrackEverywhere(newTrack) {
+    Object.values(peersRef.current).forEach((pc) => {
+      const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+      if (sender) {
+        sender.replaceTrack(newTrack);
+      }
+    });
+  }
+
+  async function startScreenShare() {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+      });
+      const screenTrack = screenStream.getVideoTracks()[0];
+
+      replaceVideoTrackEverywhere(screenTrack);
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = screenStream;
+      }
+
+      setIsScreenSharing(true);
+
+      // When the user clicks the browser's built-in "Stop sharing" button
+      screenTrack.onended = () => {
+        stopScreenShare();
+      };
+    } catch (err) {
+      console.error("Error starting screen share:", err);
+    }
+  }
+
+  function stopScreenShare() {
+    const cameraTrack = cameraTrackRef.current;
+    if (cameraTrack) {
+      replaceVideoTrackEverywhere(cameraTrack);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+    }
+    setIsScreenSharing(false);
+  }
+
+  function toggleScreenShare() {
+    if (isScreenSharing) {
+      stopScreenShare();
+    } else {
+      startScreenShare();
+    }
+  }
+
   function sendMessage() {
     const trimmed = chatInput.trim();
     if (!trimmed) return;
@@ -206,7 +260,7 @@ function App() {
       <h2>VirtualConnect</h2>
       <div style={{ display: "flex", gap: "20px", justifyContent: "center", flexWrap: "wrap" }}>
         <div>
-          <p>You</p>
+          <p>You {isScreenSharing ? "(sharing screen)" : ""}</p>
           <video
             ref={localVideoRef}
             autoPlay
@@ -291,8 +345,11 @@ function App() {
         <button onClick={toggleMute} style={{ marginRight: "10px", padding: "8px 16px" }}>
           {isMuted ? "Unmute" : "Mute"}
         </button>
-        <button onClick={toggleCamera} style={{ padding: "8px 16px" }}>
+        <button onClick={toggleCamera} style={{ marginRight: "10px", padding: "8px 16px" }}>
           {isCameraOff ? "Turn Camera On" : "Turn Camera Off"}
+        </button>
+        <button onClick={toggleScreenShare} style={{ padding: "8px 16px" }}>
+          {isScreenSharing ? "Stop Sharing" : "Share Screen"}
         </button>
       </div>
     </div>
