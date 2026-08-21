@@ -10,10 +10,13 @@ function App() {
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
+  const chatEndRef = useRef(null);
 
   const [roomId] = useState("test-room");
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
 
   useEffect(() => {
     async function startCamera() {
@@ -96,6 +99,10 @@ function App() {
       }
     });
 
+    socket.on("chat-message", ({ from, message }) => {
+      setMessages((prev) => [...prev, { from: "them", text: message }]);
+    });
+
     return () => {
       socket.off("connect");
       socket.off("user-joined");
@@ -103,8 +110,15 @@ function App() {
       socket.off("answer");
       socket.off("ice-candidate");
       socket.off("user-left");
+      socket.off("chat-message");
     };
   }, [roomId]);
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   async function flushPendingCandidates(pc) {
     while (pendingCandidatesRef.current.length > 0) {
@@ -150,7 +164,7 @@ function App() {
     const stream = localStreamRef.current;
     if (!stream) return;
     stream.getAudioTracks().forEach((track) => {
-      track.enabled = isMuted; // flips current state
+      track.enabled = isMuted;
     });
     setIsMuted(!isMuted);
   }
@@ -159,9 +173,23 @@ function App() {
     const stream = localStreamRef.current;
     if (!stream) return;
     stream.getVideoTracks().forEach((track) => {
-      track.enabled = isCameraOff; // flips current state
+      track.enabled = isCameraOff;
     });
     setIsCameraOff(!isCameraOff);
+  }
+
+  function sendMessage() {
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+    socket.emit("chat-message", { roomId, message: trimmed });
+    setMessages((prev) => [...prev, { from: "me", text: trimmed }]);
+    setChatInput("");
+  }
+
+  function handleChatKeyDown(e) {
+    if (e.key === "Enter") {
+      sendMessage();
+    }
   }
 
   return (
@@ -187,6 +215,61 @@ function App() {
             muted
             style={{ width: "400px", border: "2px solid #333" }}
           />
+        </div>
+
+        <div
+          style={{
+            width: "250px",
+            height: "440px",
+            border: "2px solid #333",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <p style={{ margin: "8px" }}>Chat</p>
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "8px",
+              borderTop: "1px solid #ccc",
+              borderBottom: "1px solid #ccc",
+            }}
+          >
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  textAlign: msg.from === "me" ? "right" : "left",
+                  margin: "4px 0",
+                }}
+              >
+                <span
+                  style={{
+                    background: msg.from === "me" ? "#daf1da" : "#eee",
+                    padding: "4px 8px",
+                    borderRadius: "8px",
+                    display: "inline-block",
+                  }}
+                >
+                  {msg.text}
+                </span>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <div style={{ display: "flex", padding: "8px" }}>
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleChatKeyDown}
+              placeholder="Type a message..."
+              style={{ flex: 1, padding: "6px" }}
+            />
+            <button onClick={sendMessage} style={{ marginLeft: "6px" }}>
+              Send
+            </button>
+          </div>
         </div>
       </div>
 
