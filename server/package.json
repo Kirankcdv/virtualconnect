@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-       "dev": "nodemon --ignore node_modules --ignore client index.js"
-  },
+    "scripts": {
+     "test": "echo \"Error: no test specified\" && exit 1",
+     "dev": "nodemon --ignore node_modules --ignore client index.js",
+     "start": "node index.js"
+   },
   "keywords": [],
   "author": "",
   "license": "ISC",
