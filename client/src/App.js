@@ -262,12 +262,18 @@ function App() {
         <div>
           <p>You {isScreenSharing ? "(sharing screen)" : ""}</p>
           <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{ width: "300px", border: "2px solid #333" }}
-          />
+  autoPlay
+  playsInline
+  style={{ width: "300px", border: "2px solid #333" }}
+  ref={(el) => {
+    if (el && el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.play().catch((err) => {
+        console.warn("Autoplay with sound blocked, click the video to enable audio:", err);
+      });
+    }
+  }}
+/>
         </div>
 
         {Object.entries(remoteStreams).map(([peerId, stream]) => (
