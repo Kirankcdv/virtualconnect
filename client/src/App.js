@@ -7,7 +7,7 @@ const socket = io(process.env.REACT_APP_SERVER_URL || "http://localhost:5000");
 function App() {
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
-  const cameraTrackRef = useRef(null); // keep original camera track to restore later
+  const cameraTrackRef = useRef(null);
   const peersRef = useRef({});
   const pendingCandidatesRef = useRef({});
   const chatEndRef = useRef(null);
@@ -188,7 +188,6 @@ function App() {
     setIsCameraOff(!isCameraOff);
   }
 
-  // Swap the video track on every active peer connection
   function replaceVideoTrackEverywhere(newTrack) {
     Object.values(peersRef.current).forEach((pc) => {
       const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
@@ -213,7 +212,6 @@ function App() {
 
       setIsScreenSharing(true);
 
-      // When the user clicks the browser's built-in "Stop sharing" button
       screenTrack.onended = () => {
         stopScreenShare();
       };
@@ -262,18 +260,12 @@ function App() {
         <div>
           <p>You {isScreenSharing ? "(sharing screen)" : ""}</p>
           <video
-  autoPlay
-  playsInline
-  style={{ width: "300px", border: "2px solid #333" }}
-  ref={(el) => {
-    if (el && el.srcObject !== stream) {
-      el.srcObject = stream;
-      el.play().catch((err) => {
-        console.warn("Autoplay with sound blocked, click the video to enable audio:", err);
-      });
-    }
-  }}
-/>
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{ width: "300px", border: "2px solid #333" }}
+          />
         </div>
 
         {Object.entries(remoteStreams).map(([peerId, stream]) => (
@@ -282,10 +274,17 @@ function App() {
             <video
               autoPlay
               playsInline
-              muted
               style={{ width: "300px", border: "2px solid #333" }}
               ref={(el) => {
-                if (el) el.srcObject = stream;
+                if (el && el.srcObject !== stream) {
+                  el.srcObject = stream;
+                  el.play().catch((err) => {
+                    console.warn(
+                      "Autoplay with sound blocked, click the video to enable audio:",
+                      err
+                    );
+                  });
+                }
               }}
             />
           </div>
